@@ -1,0 +1,526 @@
+
+ ▐▛███▜▌   Claude Code v2.1.41
+▝▜█████▛▘  Opus 4.6 · Claude Pro
+  ▘▘ ▝▝    ~/…/Bevel-Network/claude-bevel-automation-script/scripts
+
+❯ ok so /home/vhits/Projects/Peer-Network/Bevel-Network/FULL-SETUP-GUIDE.md 
+   is the guide which you gave me now i want to implement this on my 3 pc's 
+   but that is and complex task because running the command on pc's in      
+  proper sequence is complex and if some missed then it gets problem. so    
+  what i was thinking is to create and generalize script using which i can  
+  run that script and setup my mutliclusert fabric network. So below is how 
+   i want my script to work in flow                                         
+                                                                            
+  - ask from user for which role they are setting up (orderer org or peer   
+  org)                                                                      
+  - check if all the pre-requisite is installed or not if not then install  
+  - ask from user for the ip  address                                       
+  - do all the requierd step for that pc as per sequence needed to run as   
+  menstioned in guide                                                       
+  - what ever the sequene check if further command on that pc firstly need  
+  some other pc to run some command as per sequence and so the script       
+  running on that pc should wait until confiration.                         
+  - check proper connectvity first among the peers then proceed next        
+  - ask for other pc ip if need for connecteion                             
+  - keep it interactive if anywhere need user input like for setting up     
+  haproxy or hasicorp vault or gitops so user can put input                 
+  - ask for user input where things needs to be replace or needed the info  
+  to run network properly                                                   
+  - every thing should work properly and as per proper sequence             
+  - as script will run on terminal give proper logging and comments and     
+  also display the checklist evertime so we can get to know whats done and  
+  what not                                                                  
+  - write proper error chathcing logic and all                              
+                                                                            
+  hope everything is clear first go through the readme file then look at    
+  the points which i told you then if you have any questions you can ask    
+  and if any suugestion then also give me we will clear it all and finalize 
+   it                                                                       
+                                                                            
+
+● Let me read the guide first to understand the full setup process.
+
+● Read 1 file (ctrl+o to expand)
+
+● I've read the entire guide (12 phases, 1830 lines). This is a significant
+  undertaking. Before I start planning, I have some questions and suggestions to
+   align on the approach.
+
+  My Understanding
+
+  The guide deploys a 3-PC Hyperledger Fabric network using Bevel:
+  - PC1: Orderer Org (CA, 3 Orderers, HAProxy)
+  - PC2: Org1 (CA, Peer0, CouchDB, HAProxy)
+  - PC3: Org2 (CA, Peer0, CouchDB, HAProxy)
+  - One PC (likely PC1) also acts as the Ansible controller that orchestrates
+  the Bevel deployment
+
+  Questions
+
+● User answered Claude's questions:
+  ⎿  · How should the script architecture work? One script that you run on 
+     each PC individually (it asks 'what role am I?'), or a single 
+     controller script that SSHes into the other PCs to execute remote 
+     commands? → i want 3 scripts per-pc script, controller-based script 
+     and hybrid all 3 scripts but seprately so i can review which will be 
+     best.
+     · Which PC will be the Ansible controller (the one that runs the Bevel
+      playbooks)? → this should also give option as in architecture i told 
+     you to give all 3 scripts. so all 3 option.
+     · Should Phase 11 (Prometheus + Grafana monitoring) be included in the
+      script, or keep it as a separate optional step? → Include it
+     · For the 'wait for other PCs' synchronization, how should PCs 
+     coordinate? → Both options
+
+● That's a big ask - 3 separate complete scripts, each covering all 12 phases
+  with all 3 controller options, monitoring included, and dual sync methods.
+  Each script would be 2000-3000+ lines of bash.
+
+  Let me plan this properly before writing.
+
+● Entered plan mode
+  Claude is now exploring and designing an implementation approach.
+
+● Explore(Explore project structure)
+  ⎿  Done (14 tool uses · 26.1k tokens · 27s)
+  (ctrl+o to expand)
+
+● Now let me read the existing network.yaml to understand the template
+  structure.
+
+● Read 1 file (ctrl+o to expand)
+
+● Now I have all the context. Let me write the plan.
+
+● Updated plan
+  ⎿  /plan to preview
+  ⎿  Tool use rejected with user message: yes, clear context and auto-accept 
+     edits and in last give me guide how to run each script and if in between if
+      you have any question you can ask me make and folder name 
+     claude-bevel-automation-script inside that do all this because i have give 
+     same to task to other so it want conflict and yes forget to tell it should 
+     ask for consensus which we need to use raft or bft and as per opetion 
+     selected it should work
+
+● Got it. Let me create the claude-bevel-automation-script folder and build
+  everything. I'll add consensus selection (raft/bft) throughout.
+
+● Bash(mkdir -p /home/vhits/Projects/Peer-Network/Bevel-Network/claude-bevel-aut
+      omation-script/scripts/lib)
+  ⎿  Done
+
+● Let me start writing all the library files and scripts. I'll work through them
+   systematically.
+
+● Write(lib/common.sh)
+  ⎿  Wrote 417 lines to lib/common.sh
+       1 #!/usr/bin/env bash
+       2 # ==============================================================
+         ===============
+       3 # common.sh - Shared utilities for Bevel Fabric Network Setup
+       4 # ==============================================================
+         ===============
+       5 
+       6 set -euo pipefail
+       7 
+       8 # ---- Colors & Formatting ----
+       9 RED='\033[0;31m'
+      10 GREEN='\033[0;32m'
+     … +407 lines (ctrl+o to expand)
+
+● Write(lib/prerequisites.sh)
+  ⎿  Wrote 277 lines to lib/prerequisites.sh
+      1 #!/usr/bin/env bash
+      2 # ===============================================================
+        ==============
+      3 # prerequisites.sh - Install all required tools
+      4 # ===============================================================
+        ==============
+      5 
+      6 # Source common if not already loaded
+      7 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+      8 # shellcheck disable=SC1091
+      9 [[ -z "${NC:-}" ]] && source "${SCRIPT_DIR}/common.sh"
+     … +267 lines (ctrl+o to expand)
+
+● Write(lib/firewall.sh)
+  ⎿  Wrote 94 lines to lib/firewall.sh
+       1 #!/usr/bin/env bash
+       2 # ==============================================================
+         ===============
+       3 # firewall.sh - Configure UFW firewall rules
+       4 # ==============================================================
+         ===============
+       5 
+       6 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+       7 # shellcheck disable=SC1091
+       8 [[ -z "${NC:-}" ]] && source "${SCRIPT_DIR}/common.sh"
+       9 
+      10 setup_firewall() {
+     … +84 lines (ctrl+o to expand)
+
+● Write(lib/dns.sh)
+  ⎿  Wrote 259 lines to lib/dns.sh
+       1 #!/usr/bin/env bash
+       2 # ==============================================================
+         ===============
+       3 # dns.sh - Configure /etc/hosts and CoreDNS for cross-cluster re
+         solution
+       4 # ==============================================================
+         ===============
+       5 
+       6 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+       7 # shellcheck disable=SC1091
+       8 [[ -z "${NC:-}" ]] && source "${SCRIPT_DIR}/common.sh"
+       9 
+      10 setup_etc_hosts() {
+     … +249 lines (ctrl+o to expand)
+
+● Write(lib/haproxy.sh)
+  ⎿  Wrote 104 lines to lib/haproxy.sh
+       1 #!/usr/bin/env bash
+       2 # ==============================================================
+         ===============
+       3 # haproxy.sh - Install HAProxy Ingress Controller
+       4 # ==============================================================
+         ===============
+       5 
+       6 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+       7 # shellcheck disable=SC1091
+       8 [[ -z "${NC:-}" ]] && source "${SCRIPT_DIR}/common.sh"
+       9 
+      10 install_haproxy_local() {
+     … +94 lines (ctrl+o to expand)
+
+● Write(lib/vault-setup.sh)
+  ⎿  Wrote 299 lines to lib/vault-setup.sh
+       1 #!/usr/bin/env bash
+       2 # ==============================================================
+         ===============
+       3 # vault-setup.sh - HashiCorp Vault installation and configuratio
+         n
+       4 # ==============================================================
+         ===============
+       5 
+       6 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+       7 # shellcheck disable=SC1091
+       8 [[ -z "${NC:-}" ]] && source "${SCRIPT_DIR}/common.sh"
+       9 
+      10 setup_vault() {
+     … +289 lines (ctrl+o to expand)
+
+● Write(lib/gitops.sh)
+  ⎿  Wrote 148 lines to lib/gitops.sh
+       1 #!/usr/bin/env bash
+       2 # ==============================================================
+         ===============
+       3 # gitops.sh - Git repository setup, SSH keys, and GitHub configu
+         ration
+       4 # ==============================================================
+         ===============
+       5 
+       6 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+       7 # shellcheck disable=SC1091
+       8 [[ -z "${NC:-}" ]] && source "${SCRIPT_DIR}/common.sh"
+       9 
+      10 setup_gitops() {
+     … +138 lines (ctrl+o to expand)
+
+● Write(lib/sync.sh)
+  ⎿  Wrote 215 lines to lib/sync.sh
+       1 #!/usr/bin/env bash
+       2 # ==============================================================
+         ===============
+       3 # sync.sh - Cross-PC synchronization (auto-check + manual fallba
+         ck)
+       4 # ==============================================================
+         ===============
+       5 
+       6 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+       7 # shellcheck disable=SC1091
+       8 [[ -z "${NC:-}" ]] && source "${SCRIPT_DIR}/common.sh"
+       9 
+      10 # Wait for a TCP port to be reachable on a remote host
+     … +205 lines (ctrl+o to expand)
+
+● Write(lib/kubeconfig.sh)
+  ⎿  Wrote 190 lines to lib/kubeconfig.sh
+       1 #!/usr/bin/env bash
+       2 # ==============================================================
+         ===============
+       3 # kubeconfig.sh - Export and configure kubeconfigs for multi-clu
+         ster access
+       4 # ==============================================================
+         ===============
+       5 
+       6 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+       7 # shellcheck disable=SC1091
+       8 [[ -z "${NC:-}" ]] && source "${SCRIPT_DIR}/common.sh"
+       9 
+      10 # Export kubeconfig from local K3s and fix the server IP
+     … +180 lines (ctrl+o to expand)
+
+● Write(lib/network-yaml.sh)
+  ⎿  Wrote 416 lines to lib/network-yaml.sh
+       1 #!/usr/bin/env bash
+       2 # ==============================================================
+         ===============
+       3 # network-yaml.sh - Generate network.yaml from collected configu
+         ration
+       4 # ==============================================================
+         ===============
+       5 
+       6 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+       7 # shellcheck disable=SC1091
+       8 [[ -z "${NC:-}" ]] && source "${SCRIPT_DIR}/common.sh"
+       9 
+      10 generate_network_yaml() {
+     … +406 lines (ctrl+o to expand)
+
+● Write(lib/bevel-deploy.sh)
+  ⎿  Wrote 139 lines to lib/bevel-deploy.sh
+       1 #!/usr/bin/env bash
+       2 # ==============================================================
+         ===============
+       3 # bevel-deploy.sh - Run Ansible playbooks to deploy the Fabric n
+         etwork
+       4 # ==============================================================
+         ===============
+       5 
+       6 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+       7 # shellcheck disable=SC1091
+       8 [[ -z "${NC:-}" ]] && source "${SCRIPT_DIR}/common.sh"
+       9 
+      10 activate_ansible_venv() {
+     … +129 lines (ctrl+o to expand)
+
+● Write(lib/monitoring.sh)
+  ⎿  Wrote 470 lines to lib/monitoring.sh
+       1 #!/usr/bin/env bash
+       2 # ==============================================================
+         ===============
+       3 # monitoring.sh - Prometheus + Grafana setup (per-org + central 
+         federation)
+       4 # ==============================================================
+         ===============
+       5 
+       6 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+       7 # shellcheck disable=SC1091
+       8 [[ -z "${NC:-}" ]] && source "${SCRIPT_DIR}/common.sh"
+       9 
+      10 setup_monitoring() {
+     … +460 lines (ctrl+o to expand)
+
+● Write(lib/verify.sh)
+  ⎿  Wrote 240 lines to lib/verify.sh
+       1 #!/usr/bin/env bash
+       2 # ==============================================================
+         ===============
+       3 # verify.sh - Network verification and health checks
+       4 # ==============================================================
+         ===============
+       5 
+       6 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+       7 # shellcheck disable=SC1091
+       8 [[ -z "${NC:-}" ]] && source "${SCRIPT_DIR}/common.sh"
+       9 
+      10 verify_network() {
+     … +230 lines (ctrl+o to expand)
+
+● Now let me write the 3 main orchestrator scripts.
+
+● Write(1-per-pc-setup.sh)
+  ⎿  Wrote 286 lines to 1-per-pc-setup.sh
+       1 #!/usr/bin/env bash
+       2 # ==============================================================
+         ===============
+       3 # 1-per-pc-setup.sh - Per-PC Independent Setup Script
+       4 # ==============================================================
+         ===============
+       5 # Run this script on EACH PC separately.
+       6 # It asks what role this PC plays and handles its local setup.
+       7 # For controller phases (Ansible/Bevel deploy), it asks if this 
+         PC is the controller.
+       8 #
+       9 # Usage: ./1-per-pc-setup.sh [--resume] [--dry-run] [--reset]
+      10 # ==============================================================
+         ===============
+     … +276 lines (ctrl+o to expand)
+
+● Write(2-controller-setup.sh)
+  ⎿  Wrote 567 lines to 2-controller-setup.sh
+       1 #!/usr/bin/env bash
+       2 # ==============================================================
+         ===============
+       3 # 2-controller-setup.sh - Controller-Based Setup Script
+       4 # ==============================================================
+         ===============
+       5 # Run this script on ONE controller PC only.
+       6 # It SSHes into all 3 PCs to execute remote commands.
+       7 # Handles everything from a single machine.
+       8 #
+       9 # Prerequisites: SSH key-based auth to all 3 PCs must already wo
+         rk.
+      10 #
+     … +557 lines (ctrl+o to expand)
+
+● Write(3-hybrid-setup.sh)
+  ⎿  Wrote 388 lines to 3-hybrid-setup.sh
+       1 #!/usr/bin/env bash
+       2 # ==============================================================
+         ===============
+       3 # 3-hybrid-setup.sh - Hybrid Setup Script
+       4 # ==============================================================
+         ===============
+       5 # Part A (infra): Run on EACH PC locally - installs Docker, K3s,
+          firewall,
+       6 #                 DNS, HAProxy, Vault (Phases 1-5)
+       7 # Part B (deploy): Run on CONTROLLER only - Ansible, Bevel deplo
+         y, monitoring
+       8 #                  (Phases 6-12)
+       9 #
+      10 # Usage:
+     … +378 lines (ctrl+o to expand)
+
+● Now let me write the README with usage guide and comparison.
+
+● Write(README.md)
+  ⎿  Wrote 224 lines to README.md
+       1 # Bevel Fabric Network - Automated Setup Scripts
+       2 
+       3 Three different script architectures to deploy a multi-cluster H
+         yperledger Fabric network across 3 PCs using Bevel.
+       4 
+       5 ## Quick Comparison
+       6 
+       7 | Feature | 1-per-pc-setup.sh | 2-controller-setup.sh | 3-hybrid
+         -setup.sh |
+       8 |---------|-------------------|----------------------|----------
+         ---------|
+       9 | **Where it runs** | Each PC independently | One controller PC 
+         only | Infra: each PC / Deploy: controller |
+      10 | **SSH required** | No | Yes (to all 3 PCs) | Only for kubeconf
+         ig fetch |
+     … +214 lines (ctrl+o to expand)
+
+● Now let me make all scripts executable.
+
+● Bash(chmod +x /home/vhits/Projects/Peer-Network/Bevel-Network/claude-bevel-aut
+      omation-script/scripts/1-per-pc-setup.sh
+      /home/vhits/Projects/Peer-Network/Bevel-Networ…)
+  ⎿  Done
+
+● Let me verify the complete structure and do a quick syntax check.
+
+● Bash(find /home/vhits/Projects/Peer-Network/Bevel-Network/claude-bevel-automat
+      ion-script -type f | sort && echo "---" && wc -l
+      /home/vhits/Projects/Peer-Network/Beve…)
+  ⎿  /home/vhits/Projects/Peer-Network/Bevel-Network/claude-bevel-automatio
+     n-script/scripts/1-per-pc-setup.sh
+     /home/vhits/Projects/Peer-Network/Bevel-Network/claude-bevel-automatio
+     … +23 lines (ctrl+o to expand)
+
+● Bash(cd /home/vhits/Projects/Peer-Network/Bevel-Network/claude-bevel-automatio
+      n-script/scripts && bash -n 1-per-pc-setup.sh 2>&1 && echo "Script 1: OK"
+      || echo "Scri…)
+  ⎿  Script 1: OK
+     Script 2: OK
+     Script 3: OK
+
+● All scripts pass syntax check. Here's the complete summary:
+
+  What Was Created
+
+  16 files, ~4500 lines inside claude-bevel-automation-script/scripts/:
+
+  Shared Library (lib/)
+
+  File: common.sh
+  Purpose: Logging, colors, user prompts, checklist, config persistence, error
+    handling
+  ────────────────────────────────────────
+  File: prerequisites.sh
+  Purpose: Install Docker, K3s, Helm, kubectl, Vault, Ansible, jq, yq
+  ────────────────────────────────────────
+  File: firewall.sh
+  Purpose: UFW rules (open or restrictive mode)
+  ────────────────────────────────────────
+  File: dns.sh
+  Purpose: /etc/hosts + CoreDNS configuration
+  ────────────────────────────────────────
+  File: haproxy.sh
+  Purpose: HAProxy Ingress Controller installation
+  ────────────────────────────────────────
+  File: vault-setup.sh
+  Purpose: Vault install, dev/production mode, secrets engine
+  ────────────────────────────────────────
+  File: kubeconfig.sh
+  Purpose: Export kubeconfigs, fix IPs, multi-cluster access
+  ────────────────────────────────────────
+  File: gitops.sh
+  Purpose: GitHub repo, SSH keys, PAT collection
+  ────────────────────────────────────────
+  File: network-yaml.sh
+  Purpose: Generate complete network.yaml from collected inputs
+  ────────────────────────────────────────
+  File: bevel-deploy.sh
+  Purpose: Run Ansible playbooks (setup-k8s + site.yaml)
+  ────────────────────────────────────────
+  File: monitoring.sh
+  Purpose: Prometheus + Grafana per-org + central federation
+  ────────────────────────────────────────
+  File: verify.sh
+  Purpose: Pod checks, log inspection, channel verification
+  ────────────────────────────────────────
+  File: sync.sh
+  Purpose: Cross-PC auto-check (TCP ports) + manual fallback
+
+  3 Orchestrator Scripts
+
+  ┌───────────────────────┬──────────────────────────────────────────────┐
+  │        Script         │                 Architecture                 │
+  ├───────────────────────┼──────────────────────────────────────────────┤
+  │ 1-per-pc-setup.sh     │ Run on each PC independently, manual sync    │
+  ├───────────────────────┼──────────────────────────────────────────────┤
+  │ 2-controller-setup.sh │ Run on one PC, SSH into all 3 remotely       │
+  ├───────────────────────┼──────────────────────────────────────────────┤
+  │ 3-hybrid-setup.sh     │ infra mode per-PC, deploy mode on controller │
+  └───────────────────────┴──────────────────────────────────────────────┘
+
+  Key Features
+
+  - Consensus selection: Asks Raft (Fabric 2.5.4) or BFT (Fabric 3.x) at start
+  - Resumable: --resume flag picks up from last completed phase
+  - Checklist display: Shows progress with checkmarks after every phase
+  - Error handling: Retry/skip/abort on failure, log file at
+  ~/.bevel-setup/setup.log
+  - Dual sync: Auto-checks remote ports first, falls back to manual confirmation
+  - Interactive: Asks for all user inputs (IPs, tokens, GitHub creds, passwords)
+
+  ---
+  How to Run Each Script
+
+  Script 1 (Per-PC):
+
+  # On EACH PC:
+  cd claude-bevel-automation-script/scripts/
+  ./1-per-pc-setup.sh
+
+  Script 2 (Controller):
+
+  # First set up SSH keys, then on controller only:
+  ssh-copy-id user@PC1_IP && ssh-copy-id user@PC2_IP && ssh-copy-id user@PC3_IP
+  ./2-controller-setup.sh
+
+  Script 3 (Hybrid):
+
+  # Step 1: On ALL 3 PCs:
+  ./3-hybrid-setup.sh infra
+
+  # Step 2: On CONTROLLER only (after all PCs finish infra):
+  ./3-hybrid-setup.sh deploy
+
+  # Anytime health check:
+  ./3-hybrid-setup.sh health
+
+✻ Cooked for 14m 15s

@@ -1,0 +1,289 @@
+---
+##############################################################################################
+# Auto-generated network.yaml for Bevel Hyperledger Fabric Deployment
+# Generated: 2026-02-17 11:49:05
+# Consensus: raft | Fabric: 2.5.4
+##############################################################################################
+
+network:
+  type: fabric
+  version: 2.5.4
+  upgrade: false
+  frontend: enabled
+
+  env:
+    type: "dev"
+    proxy: haproxy
+    retry_count: 20
+    external_dns: disabled
+    labels:
+      service: {}
+      deployment: {}
+      pvc: {}
+
+  docker:
+    url: "ghcr.io/hyperledger"
+    username: "niravchangela24"
+    password: "Errorncop@24"
+
+  consensus:
+    name: raft
+
+  orderers:
+  - orderer:
+    name: orderer1
+    type: orderer
+    org_name: ordererorg
+    uri: orderer1.ordererorg-net.pc1.nirav.com:443
+  - orderer:
+    name: orderer2
+    type: orderer
+    org_name: ordererorg
+    uri: orderer2.ordererorg-net.pc1.nirav.com:443
+  - orderer:
+    name: orderer3
+    type: orderer
+    org_name: ordererorg
+    uri: orderer3.ordererorg-net.pc1.nirav.com:443
+
+  channels:
+  - channel:
+    consortium: MyConsortium
+    channel_name: mychannel
+    channel_status: new
+    osn_creator_org:
+      name: ordererorg
+    orderers:
+    - ordererorg
+    participants:
+    - organization:
+        name: org1
+        type: creator
+        org_status: new
+        peers:
+        - peer:
+          name: peer0
+          type: anchor
+          gossipAddress: peer0.org1-net.pc2.jigs.com:443
+          peerAddress: peer0.org1-net.pc2.jigs.com:443
+        ordererAddress: orderer1.ordererorg-net.pc1.nirav.com:443
+    - organization:
+        name: org2
+        type: joiner
+        org_status: new
+        peers:
+        - peer:
+          name: peer0
+          type: anchor
+          gossipAddress: peer0.org2-net.pc3.rashmi.com:443
+          peerAddress: peer0.org2-net.pc3.rashmi.com:443
+        ordererAddress: orderer1.ordererorg-net.pc1.nirav.com:443
+
+  organizations:
+
+  # ----- OrdererOrg (PC1) -----
+  - organization:
+    type: orderer
+    name: ordererorg
+    country: US
+    state: California
+    location: SanFrancisco
+    subject: "O=OrdererOrg,OU=Orderer,L=37.77/-122.42/SanFrancisco,C=US"
+    external_url_suffix: pc1.nirav.com
+    org_status: new
+    ca_data:
+      certificate: /path/to/ordererorg/ca-server.crt
+
+    cloud_provider: minikube
+
+    k8s:
+      region: "local"
+      context: "orderer-cluster"
+      config_file: "/home/vhits/.kube/orderer-cluster.yaml"
+
+    vault:
+      url: "http://192.168.1.51:8200"
+      root_token: "roottoken-orderer"
+      secret_path: "secretsv2"
+
+    gitops:
+      git_protocol: "https"
+      git_url: "https://github.com/niravchangelavhits-blockchain-dev/bevel.git"
+      branch: "main"
+      release_dir: "platforms/hyperledger-fabric/releases/ordererorg"
+      component_dir: "platforms/hyperledger-fabric/releases/k8sComponent"
+      chart_source: "platforms/hyperledger-fabric/charts"
+      git_repo: "github.com/niravchangelavhits-blockchain-dev/bevel.git"
+      username: "niravchangelavhits-blockchain-dev"
+      password: "REPLACE_WITH_GITHUB_TOKEN"
+      email: "niravchangela.vhits@gmail.com"
+      private_key: "/home/vhits/.ssh/gitops"
+
+    services:
+      ca:
+        name: ca
+        subject: "/C=US/ST=California/L=SanFrancisco/O=OrdererOrg"
+        type: ca
+        grpc:
+          port: 7054
+
+      consensus:
+        name: raft
+      orderers:
+      - orderer:
+        name: orderer1
+        type: orderer
+        consensus: raft
+        grpc:
+          port: 7050
+        ordererAddress: orderer1.ordererorg-net.pc1.nirav.com:443
+      - orderer:
+        name: orderer2
+        type: orderer
+        consensus: raft
+        grpc:
+          port: 7050
+        ordererAddress: orderer2.ordererorg-net.pc1.nirav.com:443
+      - orderer:
+        name: orderer3
+        type: orderer
+        consensus: raft
+        grpc:
+          port: 7050
+        ordererAddress: orderer3.ordererorg-net.pc1.nirav.com:443
+
+      peers: []
+
+  # ----- Org1 (PC2) -----
+  - organization:
+    type: peer
+    name: org1
+    country: US
+    state: NewYork
+    location: NewYork
+    subject: "O=Org1,OU=Org1,L=40.73/-74/NewYork,C=US"
+    external_url_suffix: pc2.jigs.com
+    org_status: new
+    orderer_org: ordererorg
+    ca_data:
+      certificate: /path/to/org1/ca-server.crt
+
+    cloud_provider: minikube
+
+    k8s:
+      region: "local"
+      context: "org1-cluster"
+      config_file: "/home/vhits/.kube/org1-cluster.yaml"
+
+    vault:
+      url: "http://192.168.1.37:8200"
+      root_token: "roottoken-org1"
+      secret_path: "secretsv2"
+
+    gitops:
+      git_protocol: "https"
+      git_url: "https://github.com/niravchangelavhits-blockchain-dev/bevel.git"
+      branch: "main"
+      release_dir: "platforms/hyperledger-fabric/releases/org1"
+      component_dir: "platforms/hyperledger-fabric/releases/k8sComponent"
+      chart_source: "platforms/hyperledger-fabric/charts"
+      git_repo: "github.com/niravchangelavhits-blockchain-dev/bevel.git"
+      username: "niravchangelavhits-blockchain-dev"
+      password: "REPLACE_WITH_GITHUB_TOKEN"
+      email: "niravchangela.vhits@gmail.com"
+      private_key: "/home/vhits/.ssh/gitops"
+
+    services:
+      ca:
+        name: ca
+        subject: "/C=US/ST=NewYork/L=NewYork/O=Org1"
+        type: ca
+        grpc:
+          port: 7054
+
+      peers:
+      - peer:
+        name: peer0
+        type: anchor
+        gossippeeraddress: peer0.org1-net.pc2.jigs.com:443
+        peerAddress: peer0.org1-net.pc2.jigs.com:443
+        cli: enabled
+        grpc:
+          port: 7051
+        events:
+          port: 7053
+        couchdb:
+          port: 5984
+        restserver:
+          targetPort: 20001
+          port: 20001
+        expressapi:
+          targetPort: 3000
+          port: 3000
+
+  # ----- Org2 (PC3) -----
+  - organization:
+    type: peer
+    name: org2
+    country: US
+    state: Texas
+    location: Dallas
+    subject: "O=Org2,OU=Org2,L=32.78/-96.80/Dallas,C=US"
+    external_url_suffix: pc3.rashmi.com
+    org_status: new
+    orderer_org: ordererorg
+    ca_data:
+      certificate: /path/to/org2/ca-server.crt
+
+    cloud_provider: minikube
+
+    k8s:
+      region: "local"
+      context: "org2-cluster"
+      config_file: "/home/vhits/.kube/org2-cluster.yaml"
+
+    vault:
+      url: "http://192.168.1.4:8200"
+      root_token: "roottoken-org2"
+      secret_path: "secretsv2"
+
+    gitops:
+      git_protocol: "https"
+      git_url: "https://github.com/niravchangelavhits-blockchain-dev/bevel.git"
+      branch: "main"
+      release_dir: "platforms/hyperledger-fabric/releases/org2"
+      component_dir: "platforms/hyperledger-fabric/releases/k8sComponent"
+      chart_source: "platforms/hyperledger-fabric/charts"
+      git_repo: "github.com/niravchangelavhits-blockchain-dev/bevel.git"
+      username: "niravchangelavhits-blockchain-dev"
+      password: "REPLACE_WITH_GITHUB_TOKEN"
+      email: "niravchangela.vhits@gmail.com"
+      private_key: "/home/vhits/.ssh/gitops"
+
+    services:
+      ca:
+        name: ca
+        subject: "/C=US/ST=Texas/L=Dallas/O=Org2"
+        type: ca
+        grpc:
+          port: 7054
+
+      peers:
+      - peer:
+        name: peer0
+        type: anchor
+        gossippeeraddress: peer0.org2-net.pc3.rashmi.com:443
+        peerAddress: peer0.org2-net.pc3.rashmi.com:443
+        cli: enabled
+        grpc:
+          port: 7051
+        events:
+          port: 7053
+        couchdb:
+          port: 5984
+        restserver:
+          targetPort: 20001
+          port: 20001
+        expressapi:
+          targetPort: 3000
+          port: 3000
