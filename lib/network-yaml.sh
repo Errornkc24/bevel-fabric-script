@@ -426,13 +426,13 @@ EOFYAML
     head -50 "$output_file"
     echo -e "${DIM}... (truncated) ...${NC}\n"
 
-    if ask_confirm "Review full network.yaml?"; then
+    if [[ "${BEVEL_NONINTERACTIVE:-0}" != "1" ]] && ask_confirm "Review full network.yaml?"; then
         less "$output_file"
     fi
 
     # Ask where to save a copy
     local copy_dest
-    copy_dest=$(ask_input "Also save a copy to (leave empty to skip)" "")
+    copy_dest=$(ask_input "Also save a copy to (leave empty to skip)" "${BEVEL_NETWORK_YAML_COPY:-}")
     if [[ -n "$copy_dest" ]]; then
         cp "$output_file" "$copy_dest"
         log_success "Copy saved to ${copy_dest}"

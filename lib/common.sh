@@ -68,10 +68,17 @@ BANNER
 }
 
 # ---- User Input Helpers ----
+# Non-interactive mode: when BEVEL_NONINTERACTIVE=1, helpers auto-answer using
+# defaults / pre-seeded values. Required for unattended SSH-driven runs.
 ask_input() {
     local prompt="$1"
     local default="${2:-}"
     local result
+    if [[ "${BEVEL_NONINTERACTIVE:-0}" == "1" ]]; then
+        # Empty default is allowed (caller may treat empty as "skip").
+        echo "$default"
+        return
+    fi
     if [[ -n "$default" ]]; then
         read -rp "$(echo -e "${YELLOW}? ${NC}${prompt} [${default}]: ")" result </dev/tty
         echo "${result:-$default}"
@@ -90,6 +97,10 @@ ask_input() {
 ask_secret() {
     local prompt="$1"
     local result
+    if [[ "${BEVEL_NONINTERACTIVE:-0}" == "1" ]]; then
+        echo -e "${RED}[NONINTERACTIVE-FATAL]${NC} ask_secret '${prompt}' must be pre-seeded." >&2
+        exit 1
+    fi
     while true; do
         read -srp "$(echo -e "${YELLOW}? ${NC}${prompt}: ")" result </dev/tty
         echo "" >&2 # newline after hidden input
@@ -104,6 +115,12 @@ ask_secret() {
 ask_confirm() {
     local prompt="$1"
     local default="${2:-y}"
+    if [[ "${BEVEL_NONINTERACTIVE:-0}" == "1" ]]; then
+        # Allow env override to force-confirm destructive prompts (e.g., --clear).
+        if [[ "${BEVEL_AUTO_CONFIRM:-0}" == "1" ]]; then return 0; fi
+        [[ "${default,,}" == "y" || "${default,,}" == "yes" ]]
+        return $?
+    fi
     local hint="[Y/n]"
     [[ "$default" == "n" ]] && hint="[y/N]"
     local answer
@@ -116,6 +133,13 @@ ask_choice() {
     local prompt="$1"
     shift
     local options=("$@")
+    if [[ "${BEVEL_NONINTERACTIVE:-0}" == "1" ]]; then
+        # Look up named answer in BEVEL_CHOICE_<sanitized prompt> env var, else default 0.
+        local key="BEVEL_CHOICE_${prompt//[^A-Za-z0-9_]/_}"
+        local val="${!key:-0}"
+        echo "$val"
+        return
+    fi
     echo -e "\n${YELLOW}? ${NC}${prompt}" >&2
     local i
     for i in "${!options[@]}"; do
@@ -319,7 +343,21 @@ check_resources() {
 }
 
 get_local_ip() {
-    ip -4 addr show | grep 'inet ' | grep -v '127.0.0.1' | head -1 | awk '{print $2}' | cut -d'/' -f1
+    # Prefer the source IP used to reach the default gateway / internet.
+    # Avoids picking docker/cni/flannel/tailscale bridge IPs (e.g. 172.x.0.1, 10.42.x.x, 100.64.x.x).
+    local ip
+    ip=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i=="src") {print $(i+1); exit}}')
+    if [[ -z "$ip" ]]; then
+        ip=$(ip -4 route get 8.8.8.8 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i=="src") {print $(i+1); exit}}')
+    fi
+    if [[ -z "$ip" ]]; then
+        # Fallback: skip known virtual interfaces, pick first remaining
+        ip=$(ip -4 -o addr show 2>/dev/null \
+            | awk '$2 !~ /^(lo|docker|br-|cni|flannel|veth|tailscale|ztpp|kube|virbr)/ {print $2, $4}' \
+            | grep -v '127\.0\.0\.1' \
+            | head -1 | awk '{print $2}' | cut -d'/' -f1)
+    fi
+    echo "$ip"
 }
 
 validate_ip() {
@@ -332,6 +370,10 @@ validate_ip() {
 
 # ---- Consensus Helper ----
 ask_consensus() {
+    if [[ -n "$(load_config_var CONSENSUS '')" ]]; then
+        log_info "Consensus already set: $(load_config_var CONSENSUS) (Fabric $(load_config_var FABRIC_VERSION))"
+        return 0
+    fi
     local choice
     choice=$(ask_choice "Which consensus mechanism do you want to use?" \
         "Raft (Fabric 2.5.4 - Recommended, stable)" \
@@ -351,6 +393,12 @@ ask_consensus() {
 
 # ---- Role Selection ----
 ask_role() {
+    local existing
+    existing=$(load_config_var "ROLE" "")
+    if [[ -n "$existing" ]]; then
+        echo "$existing"
+        return 0
+    fi
     local choice
     choice=$(ask_choice "What role is this PC?" \
         "Orderer Org (PC1) - Runs CA, Orderer1, Orderer2, Orderer3, HAProxy" \
@@ -365,6 +413,13 @@ ask_role() {
 
 # ---- Collect IP Addresses ----
 collect_ips() {
+    if [[ -n "$(load_config_var THIS_PC_IP '')" ]] && \
+       [[ -n "$(load_config_var PC1_IP '')" ]] && \
+       [[ -n "$(load_config_var PC2_IP '')" ]] && \
+       [[ -n "$(load_config_var PC3_IP '')" ]]; then
+        log_info "IPs already configured — skipping prompts."
+        return 0
+    fi
     local detected_ip
     detected_ip=$(get_local_ip)
     log_info "Detected local IP: ${detected_ip}"

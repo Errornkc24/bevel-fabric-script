@@ -126,7 +126,7 @@ setup_controller_kubeconfigs() {
     for i in "${!remote_pcs[@]}"; do
         if [[ -f "${remote_files[$i]}" ]]; then
             log_info "Kubeconfig for ${remote_pcs[$i]} already exists."
-            if ! ask_confirm "Re-fetch from ${remote_ips[$i]}?"; then
+            if ! ask_confirm "Re-fetch from ${remote_ips[$i]}?" "n"; then
                 continue
             fi
         fi

@@ -159,7 +159,10 @@ install_ansible() {
     log_step "Installing Python3, pip, and Ansible..."
 
     sudo apt-get update
-    sudo apt-get install -y python3 python3-pip python3-venv locales
+    # python3-kubernetes is required by Bevel ansible community.kubernetes.k8s_info etc.
+    # Bevel inventory has no ansible_python_interpreter override → modules run on system Python,
+    # not the venv. Installing both keeps both interpreters working.
+    sudo apt-get install -y python3 python3-pip python3-venv locales python3-kubernetes python3-jmespath
 
     # Ensure UTF-8 locale is available (Ansible requires it)
     sudo locale-gen en_US.UTF-8 2>/dev/null || true

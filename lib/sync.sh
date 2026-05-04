@@ -112,6 +112,11 @@ wait_for_pc_ready() {
     esac
 
     # Manual fallback
+    if [[ "${BEVEL_NONINTERACTIVE:-0}" == "1" ]]; then
+        log_warning "Non-interactive mode: NOT blocking on ${pc_name} '${phase_name}'."
+        log_warning "Driver must orchestrate phase ordering across PCs externally."
+        return 0
+    fi
     echo ""
     echo -e "${YELLOW}${BOLD}================================================================${NC}"
     echo -e "${YELLOW}${BOLD}  WAITING: Please ensure ${pc_name} has completed '${phase_name}'${NC}"

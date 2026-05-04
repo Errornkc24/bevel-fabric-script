@@ -109,16 +109,31 @@ install_haproxy_remote() {
     kubectl --kubeconfig "$kubeconfig" get pods -n ingress-controller
 }
 
+_wait_haproxy_running() {
+    local kubeconfig="$1"
+    local label="${2:-cluster}"
+    local max=${3:-180}
+    local elapsed=0
+    while (( elapsed < max )); do
+        local pods
+        pods=$(kubectl --kubeconfig "$kubeconfig" get pods -n ingress-controller --no-headers 2>/dev/null)
+        if echo "$pods" | grep -q "Running"; then
+            return 0
+        fi
+        sleep 5
+        elapsed=$((elapsed + 5))
+    done
+    return 1
+}
+
 verify_haproxy_local() {
     log_step "Verifying HAProxy on local cluster..."
     local kubeconfig
     kubeconfig=$(_get_local_kubeconfig)
-    local pods
-    pods=$(kubectl --kubeconfig "$kubeconfig" get pods -n ingress-controller --no-headers 2>/dev/null)
-    if echo "$pods" | grep -q "Running"; then
+    if _wait_haproxy_running "$kubeconfig" "local" 180; then
         log_success "HAProxy is running."
     else
-        log_error "HAProxy pods not running."
+        log_error "HAProxy pods not running after 180s."
         kubectl --kubeconfig "$kubeconfig" get pods -n ingress-controller
         return 1
     fi
@@ -128,12 +143,10 @@ verify_haproxy_remote() {
     local kubeconfig="$1"
     local cluster_name="$2"
     log_step "Verifying HAProxy on ${cluster_name}..."
-    local pods
-    pods=$(kubectl --kubeconfig "$kubeconfig" get pods -n ingress-controller --no-headers 2>/dev/null)
-    if echo "$pods" | grep -q "Running"; then
+    if _wait_haproxy_running "$kubeconfig" "$cluster_name" 180; then
         log_success "HAProxy running on ${cluster_name}."
     else
-        log_warning "HAProxy not running on ${cluster_name}."
+        log_warning "HAProxy not running on ${cluster_name} after 180s."
         return 1
     fi
 }

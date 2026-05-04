@@ -743,6 +743,24 @@ _recover_cluster_namespace() {
 
     log_step "Health check: ${namespace} (${cluster_name})"
 
+    # Quick pre-check before the long stabilization sleep. If everything is already
+    # Running/Completed (or only -cli- pods are Init — expected pre-channel-join),
+    # skip the 90s wait + 300s "namespace healthy" wait entirely.
+    _quick_namespace_ok() {
+        local _status _bad
+        _status=$(kubectl --kubeconfig "$kubeconfig" get pods -n "$namespace" \
+            --no-headers 2>/dev/null || echo "")
+        [[ -z "$_status" ]] && return 1
+        _bad=$(echo "$_status" | grep -vE "Running|Completed|Succeeded|^$" | \
+            grep -vE "\-cli\-.*Init" || true)
+        [[ -z "$_bad" ]]
+    }
+
+    if _quick_namespace_ok; then
+        log_success "  All pods healthy (or only CLI pods in expected pre-channel-join Init). Skipping recovery wait."
+        return 0
+    fi
+
     # Give pods and certs-jobs time to naturally stabilize before any intervention.
     # Before this recovery was added, Kubernetes' own job backoffLimit retried
     # certs-jobs until the CA was ready. We must not interrupt that mechanism.

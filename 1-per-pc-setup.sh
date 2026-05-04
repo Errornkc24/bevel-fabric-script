@@ -220,12 +220,20 @@ main() {
     echo -e "\n${GREEN}${BOLD}Local setup for this PC is complete!${NC}\n"
 
     # ===== CONTROLLER PHASES =====
-    local is_controller
-    is_controller=$(ask_choice "Is this PC also the Ansible controller?" \
-        "Yes - this PC will run Ansible playbooks to deploy the network" \
-        "No - another PC/machine is the controller (stop here)")
+    local is_controller saved_is_controller
+    saved_is_controller=$(load_config_var "IS_CONTROLLER" "")
+    if [[ "$saved_is_controller" == "true" ]]; then
+        is_controller=0
+    elif [[ "$saved_is_controller" == "false" ]]; then
+        is_controller=1
+    else
+        is_controller=$(ask_choice "Is this PC also the Ansible controller?" \
+            "Yes - this PC will run Ansible playbooks to deploy the network" \
+            "No - another PC/machine is the controller (stop here)")
+    fi
 
     if [[ "$is_controller" == "1" ]]; then
+        save_config_var "IS_CONTROLLER" "false"
         log_info "Local setup complete. Run the controller phases from the controller machine."
         log_info "The controller needs:"
         echo -e "  - Kubeconfigs from all 3 PCs"

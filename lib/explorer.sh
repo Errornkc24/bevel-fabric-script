@@ -489,7 +489,25 @@ _patch_explorer_for_fabric_v3() {
                 s/let contract = network.getContract('\''lscc'\'');\n            let result = yield contract.evaluateTransaction('\''GetChaincodes'\'');\n            let resultJson = fabprotos.protos.ChaincodeQueryResponse.decode(result);/let resultJson = { chaincodes: [], toJSON: null };\n            \/\/ Patched: wrap lscc in try\/catch for Fabric v3.0 compatibility\n            try {\n                let contract = network.getContract('\''lscc'\'');\n                let result = yield contract.evaluateTransaction('\''GetChaincodes'\'');\n                resultJson = fabprotos.protos.ChaincodeQueryResponse.decode(result);\n            }\n            catch (lsccError) {\n                logger.info('\''lscc not available, falling back to _lifecycle'\'', lsccError.message);\n            }/
             }
         }' "$patch_file"
-        log_info "  Patched lscc → _lifecycle fallback"
+        # The original fallback block reuses bare `contract` and `result` names
+        # (declared inside the lscc try block, so out of scope after catch).
+        # Strict-mode JS throws ReferenceError → sync dies → 0 blocks/tx in UI.
+        # Re-declare with `let` in the fallback path.
+        python3 - "$patch_file" <<'PYFIX'
+import sys, re
+p = sys.argv[1]
+with open(p) as f: s = f.read()
+# Match the fallback block exactly once (inside queryInstantiatedChaincodes).
+s = s.replace(
+    "                contract = network.getContract('_lifecycle');\n"
+    "                result = yield contract.evaluateTransaction('QueryChaincodeDefinitions', '');",
+    "                let contract = network.getContract('_lifecycle');\n"
+    "                let result = yield contract.evaluateTransaction('QueryChaincodeDefinitions', '');",
+    1
+)
+with open(p, 'w') as f: f.write(s)
+PYFIX
+        log_info "  Patched lscc → _lifecycle fallback (with let decls)"
     else
         log_info "  FabricGateway.js already patched or has different structure"
     fi

@@ -20,6 +20,14 @@ setup_gitops() {
 collect_git_info() {
     log_step "Collecting Git/GitHub information..."
 
+    # If already pre-seeded (non-interactive driver), skip prompts.
+    if [[ -n "$(load_config_var GIT_TOKEN '')" ]] && \
+       [[ -n "$(load_config_var GIT_USERNAME '')" ]] && \
+       [[ -n "$(load_config_var GIT_URL '')" ]]; then
+        log_info "Git info already configured — skipping prompts."
+        return 0
+    fi
+
     local git_protocol
     git_protocol=$(ask_choice "Git protocol for Flux?" \
         "HTTPS (Recommended - easier setup)" \
@@ -30,8 +38,21 @@ collect_git_info() {
         save_config_var "GIT_PROTOCOL" "ssh"
     fi
 
+    # Defaults shift based on consensus: BFT requires the niravchangelavhits-blockchain-dev fork.
+    local consensus default_user default_repo default_branch
+    consensus=$(load_config_var "CONSENSUS" "")
+    if [[ "$consensus" == "bft" ]]; then
+        default_user="niravchangelavhits-blockchain-dev"
+        default_repo="bevel"
+        default_branch="feature/fabric-v3-bft"
+    else
+        default_user=""
+        default_repo="bevel"
+        default_branch="main"
+    fi
+
     local github_username
-    github_username=$(ask_input "Your GitHub username")
+    github_username=$(ask_input "Your GitHub username" "$default_user")
     save_config_var "GIT_USERNAME" "$github_username"
 
     local github_email
@@ -39,7 +60,7 @@ collect_git_info() {
     save_config_var "GIT_EMAIL" "$github_email"
 
     local repo_name
-    repo_name=$(ask_input "Your forked Bevel repo name" "bevel")
+    repo_name=$(ask_input "Your forked Bevel repo name" "$default_repo")
     save_config_var "GIT_REPO_NAME" "$repo_name"
 
     local git_url="https://github.com/${github_username}/${repo_name}.git"
@@ -48,7 +69,7 @@ collect_git_info() {
     save_config_var "GIT_REPO" "$git_repo"
 
     local git_branch
-    git_branch=$(ask_input "Git branch to use" "main")
+    git_branch=$(ask_input "Git branch to use" "$default_branch")
     save_config_var "GIT_BRANCH" "$git_branch"
 
     log_info "GitHub Personal Access Token is needed for Flux to push/pull."
@@ -74,6 +95,15 @@ collect_git_info() {
 
 setup_ssh_key() {
     log_step "Setting up SSH key for GitOps..."
+
+    # HTTPS protocol uses PAT for auth; deploy key not required.
+    local proto
+    proto=$(load_config_var "GIT_PROTOCOL" "https")
+    if [[ "$proto" == "https" ]]; then
+        log_info "GIT_PROTOCOL=https — skipping deploy-key generation."
+        save_config_var "SSH_PRIVATE_KEY" ""
+        return 0
+    fi
 
     local ssh_key_path="${HOME}/.ssh/gitops"
 

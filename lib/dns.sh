@@ -15,12 +15,19 @@ setup_etc_hosts() {
     pc2_ip=$(load_config_var "PC2_IP")
     pc3_ip=$(load_config_var "PC3_IP")
 
-    # Ask for domain suffix or use defaults
+    # Ask for domain suffix or use defaults (skip prompts when pre-seeded)
     local pc1_domain pc2_domain pc3_domain
-    log_info "Domain suffixes are used in Fabric URIs (e.g., orderer1.ordererorg-net.pc1.example.com)"
-    pc1_domain=$(ask_input "Domain suffix for PC1 (Orderer)" "pc1.example.com")
-    pc2_domain=$(ask_input "Domain suffix for PC2 (Org1)" "pc2.example.com")
-    pc3_domain=$(ask_input "Domain suffix for PC3 (Org2)" "pc3.example.com")
+    pc1_domain=$(load_config_var "PC1_DOMAIN" "")
+    pc2_domain=$(load_config_var "PC2_DOMAIN" "")
+    pc3_domain=$(load_config_var "PC3_DOMAIN" "")
+    if [[ -z "$pc1_domain" || -z "$pc2_domain" || -z "$pc3_domain" ]]; then
+        log_info "Domain suffixes are used in Fabric URIs (e.g., orderer1.ordererorg-net.pc1.example.com)"
+        pc1_domain=$(ask_input "Domain suffix for PC1 (Orderer)" "${pc1_domain:-pc1.example.com}")
+        pc2_domain=$(ask_input "Domain suffix for PC2 (Org1)"    "${pc2_domain:-pc2.example.com}")
+        pc3_domain=$(ask_input "Domain suffix for PC3 (Org2)"    "${pc3_domain:-pc3.example.com}")
+    else
+        log_info "Domains: ${pc1_domain} / ${pc2_domain} / ${pc3_domain}"
+    fi
 
     save_config_var "PC1_DOMAIN" "$pc1_domain"
     save_config_var "PC2_DOMAIN" "$pc2_domain"

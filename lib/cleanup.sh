@@ -30,6 +30,34 @@ _clean_k8s_cluster() {
 
     log_step "Cleaning K8s resources on ${cluster_name}..."
 
+    # 0. Strip finalizers on PVCs / pods in fabric namespaces BEFORE deleting ns.
+    #    Without this, ns delete hangs forever when local-path provisioner is gone
+    #    or when bevel jobs left a finalizer behind.
+    local pre_ns=("ordererorg-net" "org1-net" "org2-net" "vault" "ingress-nginx" "monitoring" "central-monitoring" "ingress-controller")
+    for ns in "${pre_ns[@]}"; do
+        kubectl --kubeconfig "$kubeconfig" get ns "$ns" &>/dev/null || continue
+        # PVCs
+        kubectl --kubeconfig "$kubeconfig" get pvc -n "$ns" --no-headers -o custom-columns=":metadata.name" 2>/dev/null \
+            | while read -r pvc; do
+                [[ -z "$pvc" ]] && continue
+                kubectl --kubeconfig "$kubeconfig" patch pvc "$pvc" -n "$ns" \
+                    -p '{"metadata":{"finalizers":null}}' --type=merge 2>/dev/null || true
+            done
+        # Pods stuck in Terminating
+        kubectl --kubeconfig "$kubeconfig" get pods -n "$ns" --no-headers 2>/dev/null \
+            | awk '$3=="Terminating"{print $1}' \
+            | while read -r pod; do
+                kubectl --kubeconfig "$kubeconfig" delete pod "$pod" -n "$ns" --force --grace-period=0 2>/dev/null || true
+            done
+        # Jobs (bevel-vault-mgmt etc. may have finalizers)
+        kubectl --kubeconfig "$kubeconfig" get jobs -n "$ns" --no-headers -o custom-columns=":metadata.name" 2>/dev/null \
+            | while read -r j; do
+                [[ -z "$j" ]] && continue
+                kubectl --kubeconfig "$kubeconfig" patch job "$j" -n "$ns" \
+                    -p '{"metadata":{"finalizers":null}}' --type=merge 2>/dev/null || true
+            done
+    done
+
     # 1. Uninstall monitoring helm releases BEFORE deleting namespaces
     #    (helm uninstall cleans up ClusterRoles, CRDs, webhooks that survive ns deletion)
     for mon_ns in "monitoring" "central-monitoring"; do
@@ -160,8 +188,34 @@ _clean_k8s_cluster() {
     kubectl --kubeconfig "$kubeconfig" delete pv --field-selector=status.phase=Released --ignore-not-found 2>/dev/null || true
     kubectl --kubeconfig "$kubeconfig" delete pv --field-selector=status.phase=Failed --ignore-not-found 2>/dev/null || true
 
+    # 6b. Strip finalizers on any remaining PVs and force delete (Bound PVs whose ns
+    #     is gone will otherwise stay forever as Released-finalizer-stuck).
+    local stuck_pvs
+    stuck_pvs=$(kubectl --kubeconfig "$kubeconfig" get pv --no-headers -o custom-columns=":metadata.name,:spec.claimRef.namespace" 2>/dev/null \
+        | awk '$2 ~ /(ordererorg-net|org1-net|org2-net|monitoring|vault|ingress-controller|ingress-nginx)/ {print $1}' || true)
+    for pv in $stuck_pvs; do
+        kubectl --kubeconfig "$kubeconfig" patch pv "$pv" -p '{"metadata":{"finalizers":null}}' --type=merge 2>/dev/null || true
+        kubectl --kubeconfig "$kubeconfig" delete pv "$pv" --ignore-not-found --force --grace-period=0 2>/dev/null || true
+    done
+
+    # 6c. Force-finalize any namespaces stuck in Terminating
+    for ns in "${pre_ns[@]}"; do
+        local phase
+        phase=$(kubectl --kubeconfig "$kubeconfig" get ns "$ns" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+        if [[ "$phase" == "Terminating" ]]; then
+            log_info "  Force-finalizing stuck ns: ${ns}"
+            kubectl --kubeconfig "$kubeconfig" get ns "$ns" -o json 2>/dev/null \
+                | jq '.spec.finalizers=[] | .metadata.finalizers=[]' \
+                | kubectl --kubeconfig "$kubeconfig" replace --raw "/api/v1/namespaces/${ns}/finalize" -f - 2>/dev/null || true
+        fi
+    done
+
     # 7. Delete IngressClass
     kubectl --kubeconfig "$kubeconfig" delete ingressclass haproxy --ignore-not-found 2>/dev/null || true
+
+    # 8. Delete leftover Secrets / ConfigMaps that bevel created at cluster scope
+    #    (kube-system docker-pull secrets sometimes left behind)
+    kubectl --kubeconfig "$kubeconfig" -n kube-system delete secret regcred --ignore-not-found 2>/dev/null || true
 
     log_success "K8s cleanup done on ${cluster_name}."
 }
@@ -272,8 +326,38 @@ _clean_dns() {
     fi
 
     if [[ -n "$local_kc" ]] && [[ -f "$local_kc" ]]; then
-        log_info "  Resetting CoreDNS to default..."
+        log_info "  Restoring default CoreDNS Corefile..."
+        # Replace Corefile with stock K3s default (no Bevel hosts block).
+        cat > /tmp/coredns-default.yaml <<'EOFCOREDNS'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns
+  namespace: kube-system
+data:
+  Corefile: |
+    .:53 {
+        errors
+        health {
+           lameduck 5s
+        }
+        ready
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+          pods insecure
+          fallthrough in-addr.arpa ip6.arpa
+          ttl 30
+        }
+        prometheus :9153
+        forward . /etc/resolv.conf
+        cache 30
+        loop
+        reload
+        loadbalance
+    }
+EOFCOREDNS
+        kubectl --kubeconfig "$local_kc" apply -f /tmp/coredns-default.yaml 2>/dev/null || true
         kubectl --kubeconfig "$local_kc" -n kube-system rollout restart deployment coredns 2>/dev/null || true
+        rm -f /tmp/coredns-default.yaml
     fi
 
     log_success "DNS cleanup done."
@@ -316,6 +400,26 @@ _clean_local_files() {
     # Chaincode package and Explorer config temp files
     rm -f /tmp/asset-transfer.tar.gz 2>/dev/null || true
     rm -rf /tmp/explorer-certs /tmp/explorer-config 2>/dev/null || true
+
+    # Vault dev-mode data dir + persistent data (file backend at /opt/vault/data)
+    if [[ -d /opt/vault/data ]]; then
+        log_info "  Wiping /opt/vault/data"
+        sudo rm -rf /opt/vault/data 2>/dev/null || true
+    fi
+    rm -rf /tmp/vault-* /tmp/.vault-* 2>/dev/null || true
+
+    # Local-path provisioner host data (per-cluster K3s storage)
+    if [[ -d /var/lib/rancher/k3s/storage ]]; then
+        log_info "  Wiping /var/lib/rancher/k3s/storage"
+        sudo rm -rf /var/lib/rancher/k3s/storage/* 2>/dev/null || true
+    fi
+
+    # Bevel build artifacts (generated YAMLs / builds keep stale refs across deploys)
+    if [[ -d "${HOME}/bevel/build" ]]; then
+        log_info "  Wiping ${HOME}/bevel/build"
+        rm -rf "${HOME}/bevel/build" 2>/dev/null || true
+    fi
+    rm -f "${HOME}/bevel/platforms/hyperledger-fabric/configuration/build/"*.yaml 2>/dev/null || true
 
     log_success "Local files cleanup done."
 }

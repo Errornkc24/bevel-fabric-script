@@ -245,6 +245,121 @@ except Exception as e:
     log_info "CA cert domain check complete."
 }
 
+# ---------------------------------------------------------------------------
+# _purge_stale_release_yamls: Bevel commits generated HelmRelease YAMLs to the
+# fork under platforms/hyperledger-fabric/releases/. When a previous deploy ran
+# with a different IP/domain, those committed files retain old VAULT_ADDR
+# values. Flux pulls those stale files on cluster bootstrap and Bevel applies
+# them BEFORE ansible's regeneration step lands. Result: CA/orderer pods come
+# up with stale VAULT_ADDR (e.g. 192.168.1.51) and crashloop on wait-for-vault.
+#
+# Fix: wipe per-org release YAMLs locally + push empty dirs to fork BEFORE
+# deploy-network so Flux starts from a clean slate. Ansible regenerates them
+# from the current network.yaml, with correct IPs.
+# ---------------------------------------------------------------------------
+_purge_stale_release_yamls() {
+    local bevel_dir="$1"
+    local rel_dir="${bevel_dir}/platforms/hyperledger-fabric/releases"
+
+    [[ ! -d "$rel_dir" ]] && return 0
+
+    log_info "Purging stale release YAMLs in fork (prevents stale VAULT_ADDR baking)..."
+
+    # Detect stale IPs: any IP reference in releases/ that isn't a current configured PC IP.
+    local pc1 pc2 pc3
+    pc1=$(load_config_var "PC1_IP" "")
+    pc2=$(load_config_var "PC2_IP" "")
+    pc3=$(load_config_var "PC3_IP" "")
+
+    local stale_count
+    # `grep -vE` returns 1 when nothing left after filtering current IPs (no stale).
+    # Without `|| true` the pipefail option aborts the whole deploy.
+    stale_count=$(grep -rhoE "192\.168\.[0-9]+\.[0-9]+" "$rel_dir" 2>/dev/null \
+        | sort -u | { grep -vE "^(${pc1}|${pc2}|${pc3})$" || true; } | wc -l)
+
+    if (( stale_count == 0 )); then
+        log_info "  No stale IPs found in release YAMLs. Skipping purge."
+        return 0
+    fi
+
+    log_warning "  Found ${stale_count} stale IP(s) in release YAMLs."
+
+    # Remove only the per-org component YAMLs that Bevel regenerates each deploy.
+    # Keep flux-dev/, k8sComponent/ (channel artifacts), namespace.yaml — those
+    # are regenerated and overwriting them mid-deploy can confuse Flux.
+    local removed=0
+    for org in ordererorg org1 org2; do
+        for sub in ca orderer peer; do
+            local d="${rel_dir}/${org}/${org}/${sub}"
+            if [[ -d "$d" ]]; then
+                rm -f "${d}"/*.yaml 2>/dev/null && removed=$((removed + 1))
+            fi
+        done
+    done
+
+    # k8sComponent yamls (genesis, mychannel, peer-join blocks) also bake VAULT_ADDR.
+    rm -f "${rel_dir}/k8sComponent/ordererorg/"*.yaml 2>/dev/null || true
+    rm -f "${rel_dir}/k8sComponent/org1/"*.yaml 2>/dev/null || true
+    rm -f "${rel_dir}/k8sComponent/org2/"*.yaml 2>/dev/null || true
+
+    log_info "  Cleared ${removed} stale release subdirs."
+
+    # Commit + push so Flux on each cluster reconciles to empty release set.
+    if [[ -d "${bevel_dir}/.git" ]]; then
+        local git_branch
+        git_branch=$(load_config_var "GIT_BRANCH" "main")
+        local git_email
+        git_email=$(load_config_var "GIT_EMAIL" "bevel@local")
+        local git_username
+        git_username=$(load_config_var "GIT_USERNAME" "bevel-bot")
+
+        ( cd "$bevel_dir" || return 0
+          git config user.email "$git_email" 2>/dev/null
+          git config user.name "$git_username" 2>/dev/null
+          git add -A platforms/hyperledger-fabric/releases/ 2>/dev/null
+          if ! git diff --cached --quiet 2>/dev/null; then
+              git commit -m "[ci skip] Clean stale release files (IP/domain change)" 2>/dev/null
+              local git_token
+              git_token=$(load_config_var "GIT_TOKEN" "")
+              local git_repo
+              git_repo=$(load_config_var "GIT_REPO" "")
+              if [[ -n "$git_token" ]] && [[ -n "$git_repo" ]]; then
+                  git push "https://${git_username}:${git_token}@${git_repo#github.com/}" "$git_branch" 2>/dev/null \
+                      || git push "https://${git_username}:${git_token}@${git_repo}" "$git_branch" 2>/dev/null \
+                      || log_warning "    Git push of cleaned releases failed (will deploy from local only)."
+              else
+                  log_warning "    GIT_TOKEN/GIT_REPO not set — cannot push cleaned releases to remote."
+              fi
+          fi
+        )
+    fi
+
+    # Force any already-deployed CA pods to restart so they pick up the fresh
+    # STS spec (which Bevel updated with current VAULT_ADDR earlier in the run).
+    for kc_var in KUBECONFIG_ORDERER KUBECONFIG_ORG1 KUBECONFIG_ORG2; do
+        local kc
+        kc=$(load_config_var "$kc_var" "")
+        [[ -z "$kc" || ! -f "$kc" ]] && continue
+        local ns_match
+        case "$kc_var" in
+            *ORDERER) ns_match="ordererorg-net" ;;
+            *ORG1)    ns_match="org1-net" ;;
+            *ORG2)    ns_match="org2-net" ;;
+        esac
+        # Only restart pods whose VAULT_ADDR env doesn't match the parent STS spec's VAULT_ADDR.
+        local sts_addr pod_addr
+        sts_addr=$(kubectl --kubeconfig "$kc" get sts fabric-ca-server-ca -n "$ns_match" \
+            -o jsonpath='{.spec.template.spec.containers[?(@.name=="ca-server")].env[?(@.name=="VAULT_ADDR")].value}' 2>/dev/null)
+        pod_addr=$(kubectl --kubeconfig "$kc" get pod fabric-ca-server-ca-0 -n "$ns_match" \
+            -o jsonpath='{.spec.containers[?(@.name=="ca-server")].env[?(@.name=="VAULT_ADDR")].value}' 2>/dev/null)
+        if [[ -n "$sts_addr" && -n "$pod_addr" && "$sts_addr" != "$pod_addr" ]]; then
+            log_warning "  ${ns_match}: CA pod VAULT_ADDR (${pod_addr}) differs from STS (${sts_addr}). Force-restarting."
+            kubectl --kubeconfig "$kc" delete pod fabric-ca-server-ca-0 -n "$ns_match" \
+                --force --grace-period=0 --ignore-not-found 2>/dev/null || true
+        fi
+    done
+}
+
 run_site_deployment() {
     log_header "PHASE 9.2: Deploy Fabric Network (site.yaml)"
 
@@ -283,6 +398,7 @@ run_site_deployment() {
     _track_pc_ip_changes
     _ensure_ca_domain_matches "$network_yaml"
     _detect_and_fix_stale_vault_resources
+    _purge_stale_release_yamls "$bevel_dir"
 
     log_info "Running site.yaml playbook..."
     log_warning "This will take 15-30+ minutes. Monitor pods in another terminal:"
